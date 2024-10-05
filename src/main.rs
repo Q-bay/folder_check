@@ -33,7 +33,7 @@ fn main() {
     println!("{:?}", ignore_patterns);
 
     // フォルダを再帰的にチェックする関数を呼ぶ
-    match check_folder_recursively(Path::new(&args[2]), args[3].parse::<i32>().unwrap(), &ignore_patterns) {
+    match check_folder_recursively(Path::new(&args[2]), args[3].parse::<u128>().unwrap(), &ignore_patterns) {
         Ok(_) => println!("メイン処理が正常に終了しました。"),  
         Err(e) => eprintln!("エラーが発生しました: {}", e), 
     }
@@ -48,7 +48,7 @@ fn arg_check(args: &[String]) -> Result<(), Box<dyn Error>> {
         return Err("引数の数が不正です。".into());
     }
 
-    if let Err(_) = args[3].parse::<i32>() {
+    if let Err(_) = args[3].parse::<u128>() {
         return Err("3番目の引数は数値である必要があります。".into());
     }
         
@@ -93,7 +93,7 @@ fn load_ignore_patterns(filename: &str) -> io::Result<IgnorePatterns> {
 }
 
 // フォルダを再帰的にチェックする関数
-fn check_folder_recursively(path: &Path, size: i32, ignore: &IgnorePatterns) -> io::Result<()> {
+fn check_folder_recursively(path: &Path, size: u128, ignore: &IgnorePatterns) -> io::Result<()> {
     
     for entry in fs::read_dir(path)? {
         let entry = entry?;            
