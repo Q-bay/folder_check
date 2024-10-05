@@ -27,11 +27,19 @@ fn test_arg_check() {
     let valid_args = vec![
         "program".to_string(),
         "command".to_string(),
-        "/path/to/folder".to_string(),
+        ".".to_string(), // カレントディレクトリを使用
         "10".to_string(),
     ];
-    assert!(std::panic::catch_unwind(|| arg_check(&valid_args)).is_ok());
+    assert!(arg_check(&valid_args).is_ok());
 
     let invalid_args = vec!["program".to_string()];
-    assert!(std::panic::catch_unwind(|| arg_check(&invalid_args)).is_err());
+    assert!(arg_check(&invalid_args).is_err());
+
+    let invalid_path_args = vec![
+        "program".to_string(),
+        "command".to_string(),
+        "/non/existent/path".to_string(),
+        "10".to_string(),
+    ];
+    assert!(arg_check(&invalid_path_args).is_err());
 }

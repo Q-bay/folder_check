@@ -3,6 +3,7 @@ use std::path::Path;
 use std::fs;
 use std::io::{self, BufRead};
 use regex::Regex;
+use std::error::Error;
 
 // 無視するパターンを保持する構造体
 #[derive(Debug)]
@@ -16,7 +17,10 @@ const IGNORE_FILE_PATH: &str = ".foldercheckignore";
 fn main() {
     let args: Vec<String> = env::args().collect();
     
-    arg_check(&args);
+    if let Err(e) = arg_check(&args) {
+        eprintln!("エラー: {}", e);
+        process::exit(1);
+    }
     
     println!("引数チェックが通過しました。メイン処理を開始します。");
 
@@ -35,29 +39,24 @@ fn main() {
     }
 }
 
-fn arg_check(args: &[String]) {
 
-    
+
+fn arg_check(args: &[String]) -> Result<(), Box<dyn Error>> {
     println!("受け取った引数: {:?}", args);
     
-    // 引数の数をチェック
     if args.len() != 4 {
-        println!("エラー: 引数の数が不正です。");
-        println!("使用方法: {} <フォルダパス> <数値>", args[0]);
-        process::exit(1);
+        return Err("引数の数が不正です。".into());
     }
 
-    // 3番目の引数が数値かどうかをチェック
     if let Err(_) = args[3].parse::<i32>() {
-        println!("エラー: 3番目の引数は数値である必要があります。");
-        process::exit(1);
+        return Err("3番目の引数は数値である必要があります。".into());
     }
         
-    // フォルダパスの存在チェック
     if !Path::new(&args[2]).is_dir() {
-        println!("エラー: 指定されたフォルダパスが存在しません。");
-        process::exit(1);
+        return Err("指定されたフォルダパスが存在しません。".into());
     }
+
+    Ok(())
 }
 
 // 無視パターンをファイルから読み込む関数
@@ -128,7 +127,8 @@ fn should_ignore(path: &Path, ignore: &IgnorePatterns) -> bool {
 
     // ファイルの拡張子を取得して、無視リストに含まれているかチェック   
     if let Some(ext) = path.extension() {
-        if ignore.extensions.contains(&ext.to_string_lossy().into_owned()) {
+        let ext_str = ext.to_str().unwrap_or("").to_lowercase();
+        if ignore.extensions.iter().any(|ignored_ext| ignored_ext.trim_start_matches('.').to_lowercase() == ext_str) {
             return true;
         }
     }
