@@ -1,18 +1,38 @@
-use std::env;
+use std::{env, process};
 use std::path::Path;
-use std::process;
 use std::fs;
+use std::io::{self, BufRead};
+use regex::Regex;
+
+// 無視するパターンを保持する構造体
+#[derive(Debug)]
+struct IgnorePatterns {
+    paths: Vec<Regex>,
+    extensions: Vec<String>,
+}
+
+const IGNORE_FILE_PATH: &str = ".foldercheckignore";
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    
     arg_check(&args);
+    
     println!("引数チェックが通過しました。メイン処理を開始します。");
 
-    match check_folder_recursively(Path::new(&args[2]), args[3].parse::<i32>().unwrap()) {
-        Ok(_) => println!("メイン処理が正常に終了しました。"),
-        Err(e) => eprintln!("エラーが発生しました: {}", e),
+    // .foldercheckignoreファイルから無視パターンを読み込む
+    let ignore_patterns = load_ignore_patterns(IGNORE_FILE_PATH).unwrap_or_else(|e| {
+        // エラー時
+        eprintln!("警告: 無視パターンの読み込みに失敗しました: {}", e);
+        IgnorePatterns { paths: vec![], extensions: vec![] }
+    });
+    println!("{:?}", ignore_patterns);
+
+    // フォルダを再帰的にチェックする関数を呼ぶ
+    match check_folder_recursively(Path::new(&args[2]), args[3].parse::<i32>().unwrap(), &ignore_patterns) {
+        Ok(_) => println!("メイン処理が正常に終了しました。"),  
+        Err(e) => eprintln!("エラーが発生しました: {}", e), 
     }
-    println!("メイン処理が終了しました。");
 }
 
 fn arg_check(args: &[String]) {
@@ -27,7 +47,6 @@ fn arg_check(args: &[String]) {
         process::exit(1);
     }
 
-
     // 3番目の引数が数値かどうかをチェック
     if let Err(_) = args[3].parse::<i32>() {
         println!("エラー: 3番目の引数は数値である必要があります。");
@@ -41,25 +60,78 @@ fn arg_check(args: &[String]) {
     }
 }
 
-// パスとファイルサイズを受け取り、フォルダを再帰的にチェックする
-fn check_folder_recursively(path: &Path, size: i32) -> std::io::Result<()> {
+// 無視パターンをファイルから読み込む関数
+fn load_ignore_patterns(filename: &str) -> io::Result<IgnorePatterns> {
 
-    if path.is_dir() {
+    let file = fs::File::open(filename)?;
 
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;            
-            let path = entry.path();
-            
-            if path.is_dir() {
-                check_folder_recursively(&path, size)?;
-            } else {
-                // 受け取ったファイルサイズと比較して、ファイル名を表示する
-                if path.metadata()?.len() >= size as u64 {
-                    println!("ファイル: {}", path.display());
-                }
+    let reader = io::BufReader::new(file);
+
+    // 空のベクターを空のパスと拡張子のベクターとして初期化 
+    let mut paths = Vec::new();
+    let mut extensions = Vec::new();
+
+    for line in reader.lines() {
+        let line = line?;
+
+        let trimmed_line = line.trim();
+
+        // コメント行または空行はスキップ   
+        if trimmed_line.starts_with('#') || trimmed_line.is_empty() {
+            continue;
+        }
+
+        // '*'で始まる行は拡張子パターン
+        if trimmed_line.starts_with('*') {
+            extensions.push(trimmed_line[1..].to_string());
+        } else {
+            // パスパターン 
+            paths.push(Regex::new(&format!("(^|/){}/", regex::escape(trimmed_line))).unwrap());
+        }
+    }
+
+    Ok(IgnorePatterns { paths, extensions })
+}
+
+// フォルダを再帰的にチェックする関数
+fn check_folder_recursively(path: &Path, size: i32, ignore: &IgnorePatterns) -> io::Result<()> {
+    
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;            
+        let path = entry.path();
+        
+        if should_ignore(&path, ignore) {
+            continue;
+        }
+        
+        if path.is_dir() {
+            check_folder_recursively(&path, size, ignore)?;
+        } else {
+            // ファイルサイズをチェックし、指定サイズ以上なら表示
+            if path.metadata()?.len() >= size as u64 {
+                println!("ファイル: {}", path.display());
             }
         }
     }
     
     Ok(())
+}
+
+// ファイルやディレクトリを無視すべきかどうかを判断する関数
+fn should_ignore(path: &Path, ignore: &IgnorePatterns) -> bool {
+    let path_str = path.to_str().unwrap_or("").replace('\\', "/");
+
+    // ignore.pathsの要素に一致した場合無視する
+    if ignore.paths.iter().any(|re| re.is_match(&path_str)) {
+        return true;
+    }
+
+    // ファイルの拡張子を取得して、無視リストに含まれているかチェック   
+    if let Some(ext) = path.extension() {
+        if ignore.extensions.contains(&ext.to_string_lossy().into_owned()) {
+            return true;
+        }
+    }
+
+    false
 }
