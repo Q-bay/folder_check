@@ -135,3 +135,6 @@ fn should_ignore(path: &Path, ignore: &IgnorePatterns) -> bool {
 
     false
 }
+
+#[cfg(test)]
+mod tests;
