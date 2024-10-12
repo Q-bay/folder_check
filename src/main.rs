@@ -1,9 +1,33 @@
-use std::{env, process};
+use std::process;
 use std::path::Path;
 use std::fs;
 use std::io::{self, BufRead};
 use regex::Regex;
 use std::error::Error;
+use aws_sdk_s3::Client as S3Client;
+use aws_config;
+use clap::Parser;
+use aws_sdk_s3::types::Object;
+
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    /// Source type: 's3' or 'local'
+    #[clap(short = 'r', long, default_value = "local")]
+    source: String,
+
+    /// Path to local directory or S3 bucket name
+    #[clap(short, long)]
+    path: String,
+
+    /// S3 prefix (only for S3 source)
+    #[clap(short = 'x', long)]
+    prefix: Option<String>,
+
+    /// Minimum file size in bytes
+    #[clap(short, long)]
+    size: u64,
+}
 
 // 無視するパターンを保持する構造体
 #[derive(Debug)]
