@@ -1,9 +1,33 @@
-use std::{env, process};
+use std::process;
 use std::path::Path;
 use std::fs;
 use std::io::{self, BufRead};
 use regex::Regex;
 use std::error::Error;
+use aws_sdk_s3::Client as S3Client;
+use aws_config;
+use clap::Parser;
+use aws_sdk_s3::types::Object;
+
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    /// Source type: 's3' or 'local'
+    #[clap(short = 'r', long, default_value = "local")]
+    source: String,
+
+    /// Path to local directory or S3 bucket name
+    #[clap(short, long)]
+    path: String,
+
+    /// S3 prefix (only for S3 source)
+    #[clap(short = 'x', long)]
+    prefix: Option<String>,
+
+    /// Minimum file size in bytes
+    #[clap(short, long)]
+    size: u64,
+}
 
 // 無視するパターンを保持する構造体
 #[derive(Debug)]
@@ -14,8 +38,9 @@ struct IgnorePatterns {
 
 const IGNORE_FILE_PATH: &str = ".foldercheckignore";
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let args: Args = Args::parse();
     
     if let Err(e) = arg_check(&args) {
         eprintln!("エラー: {}", e);
@@ -32,27 +57,26 @@ fn main() {
     });
     println!("{:?}", ignore_patterns);
 
-    // フォルダを再帰的にチェックする関数を呼ぶ
-    match check_folder_recursively(Path::new(&args[2]), args[3].parse::<u128>().unwrap(), &ignore_patterns) {
-        Ok(_) => println!("メイン処理が正常に終了しました。"),  
-        Err(e) => eprintln!("エラーが発生しました: {}", e), 
+    match args.source.as_str() {
+        "s3" => check_s3(&args, &ignore_patterns).await?,
+        "local" => check_local(&args, &ignore_patterns)?,
+        _ => return Err("Invalid source type. Use 's3' or 'local'.".into()),
     }
+
+    println!("処理が正常に終了しました。");
+    Ok(())
 }
 
 
 
-fn arg_check(args: &[String]) -> Result<(), Box<dyn Error>> {
+fn arg_check(args: &Args) -> Result<(), Box<dyn Error>> {
     println!("受け取った引数: {:?}", args);
-    
-    if args.len() != 4 {
-        return Err("引数の数が不正です。".into());
-    }
 
-    if let Err(_) = args[3].parse::<u128>() {
-        return Err("3番目の引数は数値である必要があります。".into());
+    if args.size == 0 {
+        return Err("サイズは0より大きい必要があります。".into());
     }
-        
-    if !Path::new(&args[2]).is_dir() {
+    
+    if args.source == "local" && !Path::new(&args.path).is_dir() {
         return Err("指定されたフォルダパスが存在しません。".into());
     }
 
@@ -92,8 +116,11 @@ fn load_ignore_patterns(filename: &str) -> io::Result<IgnorePatterns> {
     Ok(IgnorePatterns { paths, extensions })
 }
 
+fn check_local(args: &Args, ignore: &IgnorePatterns) -> Result<(), Box<dyn Error>> {
+    check_folder_recursively(Path::new(&args.path), args.size, ignore).map_err(|e| e.into())
+}
 // フォルダを再帰的にチェックする関数
-fn check_folder_recursively(path: &Path, size: u128, ignore: &IgnorePatterns) -> io::Result<()> {
+fn check_folder_recursively(path: &Path, size: u64, ignore: &IgnorePatterns) -> io::Result<()> {
     
     for entry in fs::read_dir(path)? {
         let entry = entry?;            
@@ -134,6 +161,45 @@ fn should_ignore(path: &Path, ignore: &IgnorePatterns) -> bool {
     }
 
     false
+}
+
+async fn check_s3(args: &Args, ignore: &IgnorePatterns) -> Result<(), Box<dyn Error>> {
+    let config = aws_config::defaults(aws_config::BehaviorVersion::latest()).load().await;
+    let client = S3Client::new(&config);
+
+    let result = client.list_objects_v2()
+        .bucket(&args.path)
+        .prefix(args.prefix.as_deref().unwrap_or(""))
+        .send()
+        .await?;
+
+    if let Some(contents) = result.contents {
+        for object in contents {
+            process_s3_object(&object, args, ignore);
+        }
+    }
+
+    Ok(())
+}
+
+fn process_s3_object(object: &Object, args: &Args, ignore: &IgnorePatterns) {
+    let key = match &object.key {
+        Some(k) => k,
+        None => return, // キーがない場合は早期リターン
+    };
+
+    if should_ignore(Path::new(key), ignore) {
+        return; // 無視すべきオブジェクトの場合は早期リターン
+    }
+
+    let size = object.size.unwrap_or_default() as u64;
+    if size < args.size {
+        return; // サイズが指定値未満の場合は早期リターン
+    }
+
+    // プレフィックスを含めた形式で出力
+    let formatted_key = format!("/{}", key.trim_start_matches('/'));
+    println!("S3 Object: {}, Size: {} bytes", formatted_key, size);
 }
 
 #[cfg(test)]

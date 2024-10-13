@@ -15,3 +15,6 @@ cargo run <ディレクトリパス> <サイズ（バイト）>
 ## 開発用
 ### テスト実行
 cargo test --package folder_check --bin folder_check -- tests --nocapture
+
+### サンプル
+cargo run -- -r s3 -p unko-sample -s 1
