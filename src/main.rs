@@ -183,16 +183,23 @@ async fn check_s3(args: &Args, ignore: &IgnorePatterns) -> Result<(), Box<dyn Er
 }
 
 fn process_s3_object(object: &Object, args: &Args, ignore: &IgnorePatterns) {
-    if let Some(key) = &object.key {
-        if !should_ignore(Path::new(key), ignore) {
-            let size = object.size.unwrap_or_default() as u64;
-            if size >= args.size {
-                // プレフィックスを含めた形式で出力
-                let formatted_key = format!("/{}", key.trim_start_matches('/'));
-                println!("S3 Object: {}, Size: {} bytes", formatted_key, size);
-            }
-        }
+    let key = match &object.key {
+        Some(k) => k,
+        None => return, // キーがない場合は早期リターン
+    };
+
+    if should_ignore(Path::new(key), ignore) {
+        return; // 無視すべきオブジェクトの場合は早期リターン
     }
+
+    let size = object.size.unwrap_or_default() as u64;
+    if size < args.size {
+        return; // サイズが指定値未満の場合は早期リターン
+    }
+
+    // プレフィックスを含めた形式で出力
+    let formatted_key = format!("/{}", key.trim_start_matches('/'));
+    println!("S3 Object: {}, Size: {} bytes", formatted_key, size);
 }
 
 #[cfg(test)]
