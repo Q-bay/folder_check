@@ -17,4 +17,4 @@ cargo run <ディレクトリパス> <サイズ（バイト）>
 cargo test --package folder_check --bin folder_check -- tests --nocapture
 
 ### サンプル
-cargo run folder_check　"C:\work"　10000000000000000      
+cargo run -- -r s3 -p unko-sample -s 1
